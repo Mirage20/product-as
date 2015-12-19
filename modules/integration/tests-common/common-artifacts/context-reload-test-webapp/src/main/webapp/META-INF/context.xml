@@ -1,3 +1,0 @@
-<Context reloadable="true">
-    <!--<Loader className="org.wso2.carbon.webapp.mgt.loader.CarbonWebappLoader" loaderClass="org.wso2.carbon.webapp.mgt.loader.CarbonWebappClassLoader"/>-->
-</Context>
