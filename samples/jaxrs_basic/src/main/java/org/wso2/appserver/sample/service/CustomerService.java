@@ -14,9 +14,7 @@
  *  KIND, either express or implied. See the License for the
  *  specific language governing permissions and limitations
  *  under the License.
- *
  */
-
 package org.wso2.appserver.sample.service;
 
 import org.springframework.stereotype.Service;
@@ -35,7 +33,9 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.Response;
 
 /**
- * Web service class
+ * A web service class.
+ *
+ * @since 6.0.0
  */
 @Service
 @Path("/customerservice")
@@ -50,6 +50,7 @@ public class CustomerService {
 
     @GET
     @Path("/customers/{id}/")
+    @Produces("application/xml")
     public Customer getCustomer(@PathParam("id") String id) {
         long idNumber = Long.parseLong(id);
         return customers.get(idNumber);
@@ -111,8 +112,7 @@ public class CustomerService {
     @Path("/orders/{orderId}/")
     public Order getOrder(@PathParam("orderId") String orderId) {
         long idNumber = Long.parseLong(orderId);
-        Order c = orders.get(idNumber);
-        return c;
+        return orders.get(idNumber);
     }
 
     final void init() {
@@ -126,5 +126,4 @@ public class CustomerService {
         o.setId(223);
         orders.put(o.getId(), o);
     }
-
 }

@@ -15,18 +15,32 @@
  */
 package org.wso2.appserver;
 
+import org.apache.catalina.Context;
+import org.apache.catalina.Globals;
+import org.apache.catalina.Host;
+import org.apache.catalina.Lifecycle;
+import org.apache.catalina.LifecycleEvent;
+import org.apache.catalina.core.StandardContext;
+import org.apache.catalina.core.StandardHost;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 import org.wso2.appserver.configuration.context.AppServerWebAppConfiguration;
 import org.wso2.appserver.configuration.context.ClassLoaderConfiguration;
 import org.wso2.appserver.configuration.context.SSOConfiguration;
-import org.wso2.appserver.configuration.listeners.Utils;
+import org.wso2.appserver.configuration.context.StatsPublisherConfiguration;
+import org.wso2.appserver.configuration.listeners.ContextConfigurationLoader;
 import org.wso2.appserver.exceptions.ApplicationServerConfigurationException;
+import org.wso2.appserver.exceptions.ApplicationServerRuntimeException;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * This class defines unit-tests for context level configurations.
@@ -34,26 +48,87 @@ import java.util.List;
  * @since 6.0.0
  */
 public class AppServerWebAppConfigurationTest {
-    @Test(description = "Loads the XML file content of the WSO2 App Server specific webapp descriptor")
-    public void loadObjectFromFilePath() throws ApplicationServerConfigurationException {
-        Path xmlSchema = Paths.get(TestConstants.BUILD_DIRECTORY, TestConstants.TEST_RESOURCE_FOLDER,
-                TestConstants.WEBAPP_DESCRIPTOR_XSD_FILE);
-        Path parent = Paths.
-                get(TestConstants.BUILD_DIRECTORY, TestConstants.TEST_RESOURCE_FOLDER, TestConstants.PARENT_DESCRIPTOR);
-        Path child = Paths.
-                get(TestConstants.BUILD_DIRECTORY, TestConstants.TEST_RESOURCE_FOLDER, TestConstants.CHILD_DESCRIPTOR);
-        AppServerWebAppConfiguration parentConfig = Utils.
-                getUnmarshalledObject(parent, xmlSchema, AppServerWebAppConfiguration.class);
-        AppServerWebAppConfiguration childConfig = Utils.
-                getUnmarshalledObject(child, xmlSchema, AppServerWebAppConfiguration.class);
-        parentConfig.merge(childConfig);
-        Assert.assertTrue(compare(parentConfig, prepareDefault()));
+    private static final Path catalina_base = Paths.get(TestConstants.TEST_RESOURCES, TestConstants.CATALINA_BASE);
+    private static final Path config_base_webapp_descriptor = Paths.
+            get(catalina_base.toString(), Constants.TOMCAT_CONFIGURATION_DIRECTORY,
+                    Constants.APP_SERVER_CONFIGURATION_DIRECTORY, Constants.WEBAPP_DESCRIPTOR);
+    private static final ContextConfigurationLoader context_configuration_loader = new ContextConfigurationLoader();
+    private static final Host host = new StandardHost();
+    private static final Context sample_context = new StandardContext();
+    private static final Context faulty_sample_context = new StandardContext();
+
+    @BeforeClass
+    public void setupCatalinaBaseEnv() throws IOException {
+        System.setProperty(Globals.CATALINA_BASE_PROP, catalina_base.toString());
+        prepareCatalinaComponents();
+    }
+
+    @Test(description = "Attempts to load XML file content of a non-existent webapp descriptor",
+            expectedExceptions = { ApplicationServerRuntimeException.class }, priority = 1)
+    public void testObjectLoadingFromNonExistentDescriptor() {
+        List<Lifecycle> components = new ArrayList<>();
+        components.add(host);
+        components.add(sample_context);
+        components.stream().forEach(component -> {
+            context_configuration_loader.
+                    lifecycleEvent(new LifecycleEvent(component, Lifecycle.BEFORE_START_EVENT, null));
+            context_configuration_loader.
+                    lifecycleEvent(new LifecycleEvent(component, Lifecycle.CONFIGURE_START_EVENT, null));
+        });
+    }
+
+    @Test(description = "Loads the XML file content of a WSO2 App Server specific webapp descriptor", priority = 2)
+    public void testObjectLoadingFromDescriptor() throws IOException, ApplicationServerConfigurationException {
+        Path source = Paths.get(TestConstants.TEST_RESOURCES, Constants.WEBAPP_DESCRIPTOR);
+        Files.copy(source, config_base_webapp_descriptor);
+
+        context_configuration_loader.
+                lifecycleEvent(new LifecycleEvent(sample_context, Lifecycle.BEFORE_START_EVENT, null));
+
+        Optional<AppServerWebAppConfiguration> effective = ContextConfigurationLoader.
+                getContextConfiguration(sample_context);
+        if (effective.isPresent()) {
+            Assert.assertTrue(compare(effective.get(), prepareDefault()));
+        } else {
+            Assert.fail();
+        }
+    }
+
+    @Test(description = "Loads the XML file content of an erroneous WSO2 App Server specific webapp descriptor",
+            expectedExceptions = { ApplicationServerRuntimeException.class }, priority = 3)
+    public void testObjectLoadingFromFaultyDescriptor() {
+        context_configuration_loader.
+                lifecycleEvent(new LifecycleEvent(faulty_sample_context, Lifecycle.BEFORE_START_EVENT, null));
+    }
+
+    @Test(description = "Checks the removal of per webapp configurations at Lifecycle.AFTER_STOP_EVENT", priority = 4)
+    public void testWebAppConfigurationUnloading() {
+        context_configuration_loader.
+                lifecycleEvent(new LifecycleEvent(sample_context, Lifecycle.AFTER_STOP_EVENT, null));
+        Optional<AppServerWebAppConfiguration> configuration = ContextConfigurationLoader.
+                getContextConfiguration(sample_context);
+        Assert.assertFalse(configuration.isPresent());
+    }
+
+    @AfterClass
+    public void destroy() throws IOException {
+        Files.delete(config_base_webapp_descriptor);
+    }
+
+    private static void prepareCatalinaComponents() {
+        host.setAppBase(TestConstants.WEBAPP_BASE);
+        sample_context.setParent(host);
+        sample_context.setDocBase(TestConstants.SAMPLE_WEBAPP);
+        faulty_sample_context.setParent(host);
+        faulty_sample_context.setDocBase(TestConstants.FAULTY_SAMPLE_WEBAPP);
     }
 
     private static AppServerWebAppConfiguration prepareDefault() {
         AppServerWebAppConfiguration configuration = new AppServerWebAppConfiguration();
         configuration.setClassLoaderConfiguration(prepareClassLoaderConfiguration());
         configuration.setSingleSignOnConfiguration(prepareSSOConfiguration());
+        configuration.setStatsPublisherConfiguration(prepareStatsPublisherConfiguration());
+
         return configuration;
     }
 
@@ -109,35 +184,43 @@ public class AppServerWebAppConfigurationTest {
         return ssoConfiguration;
     }
 
+    private static StatsPublisherConfiguration prepareStatsPublisherConfiguration() {
+        StatsPublisherConfiguration configuration = new StatsPublisherConfiguration();
+        configuration.enableStatsPublisher(true);
+        return configuration;
+    }
+
     private static boolean compare(AppServerWebAppConfiguration actual, AppServerWebAppConfiguration expected) {
         return ((compareClassloadingConfigs(actual.getClassLoaderConfiguration(),
                 expected.getClassLoaderConfiguration())) && (compareSSOConfigurations(
-                actual.getSingleSignOnConfiguration(), expected.getSingleSignOnConfiguration())));
+                actual.getSingleSignOnConfiguration(), expected.getSingleSignOnConfiguration()))
+                && (compareStatsPublisherConfigs(actual.getStatsPublisherConfiguration(),
+                expected.getStatsPublisherConfiguration())));
     }
 
     private static boolean compareClassloadingConfigs(ClassLoaderConfiguration actual,
             ClassLoaderConfiguration expected) {
-        return ((actual != null) && (expected != null)
-                && (actual.getEnvironments().trim().equals(expected.getEnvironments())));
+        return ((actual != null) && (expected != null) && (actual.getEnvironments().trim().
+                equals(expected.getEnvironments())));
     }
 
     private static boolean compareSSOConfigurations(SSOConfiguration actual, SSOConfiguration expected) {
         if ((actual != null) && (expected != null)) {
             boolean skipURIs = compareSkipURIs(actual.getSkipURIs(), expected.getSkipURIs());
-            boolean handlingConsumerURLAfterSLO = (actual.handleConsumerURLAfterSLO() == expected.
+            boolean handlingConsumerURLAfterSLO = actual.handleConsumerURLAfterSLO().equals(expected.
                     handleConsumerURLAfterSLO());
             boolean queryParams = actual.getQueryParams().trim().equals(expected.getQueryParams());
             boolean appServerURL = actual.getApplicationServerURL().trim().equals(expected.getApplicationServerURL());
-            boolean enableSSO = (actual.isSSOEnabled() == expected.isSSOEnabled());
+            boolean enableSSO = actual.isSSOEnabled().equals(expected.isSSOEnabled());
             boolean binding = actual.getHttpBinding().trim().equals(expected.getHttpBinding());
             boolean issuerID = actual.getIssuerId().trim().equals(expected.getIssuerId());
             boolean consumerURL = actual.getConsumerURL().trim().equals(expected.getConsumerURL());
             boolean serviceIndex = actual.getAttributeConsumingServiceIndex().trim().
                     equals(expected.getAttributeConsumingServiceIndex());
-            boolean enableSLO = (actual.isSLOEnabled() == expected.isSLOEnabled());
+            boolean enableSLO = actual.isSLOEnabled().equals(expected.isSLOEnabled());
             boolean ssl = compareSSLProperties(actual, expected);
-            boolean forceAuthn = (actual.isForceAuthnEnabled() == expected.isForceAuthnEnabled());
-            boolean passiveAuthn = (actual.isPassiveAuthnEnabled() == expected.isPassiveAuthnEnabled());
+            boolean forceAuthn = actual.isForceAuthnEnabled().equals(expected.isForceAuthnEnabled());
+            boolean passiveAuthn = actual.isPassiveAuthnEnabled().equals(expected.isPassiveAuthnEnabled());
             boolean postfixes = comparePostfixes(actual, expected);
             boolean properties = compareProperties(actual.getProperties(), expected.getProperties());
 
@@ -145,7 +228,7 @@ public class AppServerWebAppConfigurationTest {
                     && binding && issuerID && consumerURL && serviceIndex && enableSLO && ssl && forceAuthn
                     && passiveAuthn && properties);
         } else {
-            return false;
+            return ((actual == null) && (expected == null));
         }
     }
 
@@ -158,15 +241,15 @@ public class AppServerWebAppConfigurationTest {
             List<SSOConfiguration.Property> expected) {
         return actual.stream().filter(property -> expected.stream().
                 filter(exp -> (property.getKey().trim().equals(exp.getKey()) && property.getValue().trim().
-                                equals(exp.getValue()))).count() > 0).count() == expected.size();
+                        equals(exp.getValue()))).count() > 0).count() == expected.size();
     }
 
     private static boolean compareSSLProperties(SSOConfiguration actual, SSOConfiguration expected) {
-        boolean assertionSigning = (actual.isAssertionSigningEnabled() == expected.isAssertionSigningEnabled());
-        boolean assertionEncryption = (actual.isAssertionEncryptionEnabled() == expected.
+        boolean assertionSigning = actual.isAssertionSigningEnabled().equals(expected.isAssertionSigningEnabled());
+        boolean assertionEncryption = actual.isAssertionEncryptionEnabled().equals(expected.
                 isAssertionEncryptionEnabled());
-        boolean requestSigning = (actual.isRequestSigningEnabled() == expected.isRequestSigningEnabled());
-        boolean responseSigning = (actual.isResponseSigningEnabled() == expected.isResponseSigningEnabled());
+        boolean requestSigning = actual.isRequestSigningEnabled().equals(expected.isRequestSigningEnabled());
+        boolean responseSigning = actual.isResponseSigningEnabled().equals(expected.isResponseSigningEnabled());
 
         return assertionSigning && assertionEncryption && requestSigning && responseSigning;
     }
@@ -177,5 +260,11 @@ public class AppServerWebAppConfigurationTest {
         boolean sloURLPostfix = actual.getSLOURLPostfix().trim().equals(expected.getSLOURLPostfix());
 
         return requestURLPostfix && consumerURLPostfix && sloURLPostfix;
+    }
+
+    private static boolean compareStatsPublisherConfigs(StatsPublisherConfiguration actual,
+            StatsPublisherConfiguration expected) {
+        return ((actual != null) && (expected != null) && (actual.isStatsPublisherEnabled().
+                equals(expected.isStatsPublisherEnabled())));
     }
 }

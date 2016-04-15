@@ -11,9 +11,7 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 -->
-<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xmlns="http://maven.apache.org/POM/4.0.0"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>modules</artifactId>
         <groupId>org.wso2.appserver</groupId>
@@ -21,19 +19,12 @@
     </parent>
 
     <modelVersion>4.0.0</modelVersion>
-    <artifactId>http-statistics-monitoring</artifactId>
+    <artifactId>appserver-http-statistics-monitoring</artifactId>
     <name>WSO2 Application Server - Module - Http Statistics Monitoring</name>
+    <url>http://wso2.com</url>
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
-                </configuration>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -62,10 +53,16 @@
             </plugin>
         </plugins>
     </build>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.tomcat</groupId>
             <artifactId>tomcat-catalina</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-all</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testng</groupId>
@@ -77,14 +74,14 @@
             <artifactId>appserver-utils</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.wso2.carbon</groupId>
-            <artifactId>org.wso2.carbon.logging</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.eclipse.osgi</groupId>
-                    <artifactId>org.eclipse.osgi</artifactId>
-                </exclusion>
-            </exclusions>
+            <groupId>org.apache.tomcat</groupId>
+            <artifactId>tomcat-servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat</groupId>
+            <artifactId>tomcat-juli</artifactId>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.wso2.carbon.analytics-common</groupId>
@@ -102,7 +99,15 @@
                     <groupId>org.wso2.carbon</groupId>
                     <artifactId>org.wso2.carbon.core</artifactId>
                 </exclusion>
+                <exclusion>
+                    <groupId>org.apache.thrift</groupId>
+                    <artifactId>libthrift</artifactId>
+                </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
         </dependency>
         <dependency>
             <groupId>org.wso2.carbon.analytics-common</groupId>
@@ -112,62 +117,11 @@
                     <groupId>org.eclipse.osgi</groupId>
                     <artifactId>org.eclipse.osgi</artifactId>
                 </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.wso2.carbon.analytics-common</groupId>
-            <artifactId>org.wso2.carbon.databridge.commons.thrift</artifactId>
-            <exclusions>
                 <exclusion>
                     <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.eclipse.osgi</groupId>
-                    <artifactId>org.eclipse.osgi</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.utils</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.axis2</artifactId>
+                    <artifactId>org.wso2.carbon.bootstrap</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
-        <dependency>
-            <groupId>org.wso2.carbon.analytics-common</groupId>
-            <artifactId>org.wso2.carbon.databridge.commons.binary</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.utils</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.wso2.carbon</groupId>
-                    <artifactId>org.wso2.carbon.axis2</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>commons-pool</groupId>
-            <artifactId>commons-pool</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.googlecode.disruptor</groupId>
-            <artifactId>disruptor</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-all</artifactId>
-            <version>1.10.19</version>
-        </dependency>
-
-
     </dependencies>
 </project>

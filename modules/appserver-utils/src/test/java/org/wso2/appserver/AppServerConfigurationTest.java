@@ -15,15 +15,24 @@
  */
 package org.wso2.appserver;
 
+import org.apache.catalina.Globals;
+import org.apache.catalina.Lifecycle;
+import org.apache.catalina.LifecycleEvent;
+import org.apache.catalina.core.StandardHost;
+import org.apache.catalina.core.StandardServer;
+import org.apache.commons.lang3.text.StrSubstitutor;
 import org.testng.Assert;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
-import org.wso2.appserver.configuration.listeners.Utils;
+import org.wso2.appserver.configuration.listeners.ServerConfigurationLoader;
 import org.wso2.appserver.configuration.server.AppServerConfiguration;
 import org.wso2.appserver.configuration.server.ClassLoaderEnvironments;
 import org.wso2.appserver.configuration.server.SSOConfiguration;
 import org.wso2.appserver.configuration.server.SecurityConfiguration;
 import org.wso2.appserver.configuration.server.StatsPublisherConfiguration;
 import org.wso2.appserver.exceptions.ApplicationServerConfigurationException;
+import org.wso2.appserver.exceptions.ApplicationServerRuntimeException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,17 +47,47 @@ import java.util.List;
  * @since 6.0.0
  */
 public class AppServerConfigurationTest {
-    @Test(description = "Loads the XML file content of the WSO2 App Server specific server level configuration " +
-            "descriptor")
-    public void loadObjectFromFilePathTest() throws IOException, ApplicationServerConfigurationException {
-        Path xmlSource = Paths.
-                get(TestConstants.BUILD_DIRECTORY, TestConstants.TEST_RESOURCE_FOLDER, TestConstants.SAMPLE_XML_FILE);
-        Path xmlSchema = Paths.
-                get(TestConstants.BUILD_DIRECTORY, TestConstants.TEST_RESOURCE_FOLDER, TestConstants.SAMPLE_XSD_FILE);
-        AppServerConfiguration actual = Utils.
-                getUnmarshalledObject(Files.newInputStream(xmlSource), xmlSchema, AppServerConfiguration.class);
+    private static final Path catalina_base = Paths.get(TestConstants.TEST_RESOURCES, TestConstants.CATALINA_BASE);
+    private static final Path config_base_server_descriptor = Paths.
+            get(catalina_base.toString(), Constants.TOMCAT_CONFIGURATION_DIRECTORY,
+                    Constants.APP_SERVER_CONFIGURATION_DIRECTORY, Constants.APP_SERVER_DESCRIPTOR);
+    private static final StrSubstitutor string_sub = new StrSubstitutor(System.getenv());
+    private static final List<Lifecycle> lifecycle_components = generateSampleTomcatComponents();
+    private static final ServerConfigurationLoader loader = new ServerConfigurationLoader();
+
+    @BeforeClass
+    public void setupCatalinaBaseEnv() throws IOException {
+        System.setProperty(Globals.CATALINA_BASE_PROP, catalina_base.toString());
+    }
+
+    @Test(description = "Attempts to load XML file content of a non-existent server descriptor",
+            expectedExceptions = { ApplicationServerRuntimeException.class }, priority = 1)
+    public void testObjectLoadingFromNonExistentDescriptor() {
+        lifecycle_components.stream().forEach(component -> {
+            loader.lifecycleEvent(new LifecycleEvent(component, Lifecycle.BEFORE_START_EVENT, null));
+            loader.lifecycleEvent(new LifecycleEvent(component, Lifecycle.AFTER_START_EVENT, null));
+        });
+    }
+
+    @Test(description = "Loads the XML file content of the WSO2 App Server specific server level configuration "
+            + "descriptor", priority = 2)
+    public void testObjectLoadingFromDescriptor() throws IOException, ApplicationServerConfigurationException {
+        Path source = Paths.get(TestConstants.TEST_RESOURCES, Constants.APP_SERVER_DESCRIPTOR);
+        Files.copy(source, config_base_server_descriptor);
+
+        lifecycle_components.stream().forEach(component -> {
+            loader.lifecycleEvent(new LifecycleEvent(component, Lifecycle.BEFORE_START_EVENT, null));
+            loader.lifecycleEvent(new LifecycleEvent(component, Lifecycle.AFTER_START_EVENT, null));
+        });
+
+        AppServerConfiguration actual = ServerConfigurationLoader.getServerConfiguration();
         AppServerConfiguration expected = generateDefault();
         Assert.assertTrue(compare(actual, expected));
+    }
+
+    @AfterClass
+    public void destroy() throws IOException {
+        Files.delete(config_base_server_descriptor);
     }
 
     protected static AppServerConfiguration generateDefault() {
@@ -74,6 +113,10 @@ public class AppServerConfigurationTest {
         List<ClassLoaderEnvironments.Environment> envList = new ArrayList<>();
         envList.add(cxf);
         envList.add(jaxrs);
+
+        envList.forEach(environment -> environment.setClasspath(string_sub.replace(environment.getClasspath())));
+        envList.forEach(environment -> environment.
+                setClasspath(StrSubstitutor.replaceSystemProperties(environment.getClasspath())));
 
         ClassLoaderEnvironments.Environments environments = new ClassLoaderEnvironments.Environments();
         environments.setEnvironments(envList);
@@ -109,6 +152,7 @@ public class AppServerConfigurationTest {
 
         configuration.setUsername(TestConstants.USERNAME);
         configuration.setPassword(TestConstants.PASSWORD);
+        configuration.setDataAgentType(TestConstants.DATA_AGENT_TYPE);
         configuration.setAuthenticationURL(TestConstants.AUTHN_URL);
         configuration.setPublisherURL(TestConstants.PUBLISHER_URL);
         configuration.setStreamId(TestConstants.STREAM_ID);
@@ -134,6 +178,13 @@ public class AppServerConfigurationTest {
         configuration.setKeystore(keystore);
         configuration.setTruststore(truststore);
 
+        configuration.getKeystore().setLocation(string_sub.replace(configuration.getKeystore().getLocation()));
+        configuration.getTruststore().setLocation(string_sub.replace(configuration.getTruststore().getLocation()));
+        configuration.getKeystore().
+                setLocation(StrSubstitutor.replaceSystemProperties(configuration.getKeystore().getLocation()));
+        configuration.getTruststore()
+                .setLocation(StrSubstitutor.replaceSystemProperties(configuration.getTruststore().getLocation()));
+
         return configuration;
     }
 
@@ -152,11 +203,15 @@ public class AppServerConfigurationTest {
 
     private static boolean compareClassloadingConfigurations(ClassLoaderEnvironments actual,
             ClassLoaderEnvironments expected) {
-        return (actual != null) && (expected != null) && actual.getEnvironments().getEnvironments().stream().
-                filter(env -> expected.getEnvironments().getEnvironments().stream().
-                        filter(expectedEnv -> (expectedEnv.getName().equals(env.getName().trim()) && expectedEnv
-                                .getClasspath().equals(env.getClasspath().trim()))).count() > 0).count() == expected
-                .getEnvironments().getEnvironments().size();
+        if ((actual != null) && (expected != null)) {
+            return actual.getEnvironments().getEnvironments().stream().
+                    filter(env -> expected.getEnvironments().getEnvironments().stream().
+                            filter(expectedEnv -> (expectedEnv.getName().equals(env.getName().trim()) && expectedEnv.
+                                    getClasspath().equals(env.getClasspath().trim()))).count() == 1).
+                    count() == expected.getEnvironments().getEnvironments().size();
+        } else {
+            return (actual == null) && (expected == null);
+        }
     }
 
     private static boolean compareSSOConfigurations(SSOConfiguration actual, SSOConfiguration expected) {
@@ -169,15 +224,19 @@ public class AppServerConfigurationTest {
             boolean properties = compareSSOProperties(actual.getProperties(), expected.getProperties());
             return (idpURL && idpEntityID && validatorClass && idpCertAlias && properties);
         } else {
-            return false;
+            return (actual == null) && (expected == null);
         }
     }
 
     private static boolean compareSSOProperties(List<SSOConfiguration.Property> actual,
             List<SSOConfiguration.Property> expected) {
-        return (actual != null) && (expected != null) && actual.stream().filter(property -> expected.stream().
-                filter(expProperty -> ((expProperty.getKey().equals(property.getKey())) && (expProperty.getValue().
-                        equals(property.getValue())))).count() > 0).count() == expected.size();
+        if ((actual != null) && (expected != null)) {
+            return actual.stream().filter(property -> expected.stream().
+                    filter(expProperty -> ((expProperty.getKey().equals(property.getKey())) && (expProperty.getValue().
+                            equals(property.getValue())))).count() > 0).count() == expected.size();
+        } else {
+            return (actual == null) && (expected == null);
+        }
     }
 
     private static boolean compareStatsPublishingConfigurations(StatsPublisherConfiguration actual,
@@ -185,12 +244,13 @@ public class AppServerConfigurationTest {
         if ((actual != null) && (expected != null)) {
             boolean username = actual.getUsername().trim().equals(expected.getUsername());
             boolean password = actual.getPassword().trim().equals(expected.getPassword());
+            boolean dataAgent = actual.getDataAgentType().trim().equals(expected.getDataAgentType());
             boolean authnURL = actual.getAuthenticationURL().trim().equals(expected.getAuthenticationURL());
             boolean publisherURL = actual.getPublisherURL().trim().equals(expected.getPublisherURL());
             boolean streamID = actual.getStreamId().trim().equals(expected.getStreamId());
-            return (username && password && authnURL && publisherURL && streamID);
+            return (username && password && dataAgent && authnURL && publisherURL && streamID);
         } else {
-            return false;
+            return (actual == null) && (expected == null);
         }
     }
 
@@ -207,6 +267,12 @@ public class AppServerConfigurationTest {
                         equals(expected.getKeystore().getKeyAlias());
                 privateKeyPassword = actual.getKeystore().getKeyPassword().trim().
                         equals(expected.getKeystore().getKeyPassword());
+            } else if ((actual.getKeystore() == null) && (expected.getKeystore() == null)) {
+                keystorePath = true;
+                keystorePassword = true;
+                type = true;
+                privateKeyAlias = true;
+                privateKeyPassword = true;
             }
 
             boolean truststorePath, truststorePassword, truststoreType;
@@ -217,12 +283,24 @@ public class AppServerConfigurationTest {
                 truststorePassword = actual.getTruststore().getPassword().trim().
                         equals(expected.getTruststore().getPassword());
                 truststoreType = actual.getTruststore().getType().trim().equals(expected.getTruststore().getType());
+            } else if ((actual.getTruststore() == null) && (expected.getTruststore() == null)) {
+                truststorePath = true;
+                truststorePassword = true;
+                truststoreType = true;
             }
 
             return (keystorePath && keystorePassword && type && privateKeyAlias && privateKeyPassword &&
                     truststorePath && truststorePassword && truststoreType);
         } else {
-            return false;
+            return (actual == null) && (expected == null);
         }
+    }
+
+    private static List<Lifecycle> generateSampleTomcatComponents() {
+        List<Lifecycle> components = new ArrayList<>();
+        components.add(new StandardHost());
+        components.add(new StandardServer());
+
+        return components;
     }
 }
